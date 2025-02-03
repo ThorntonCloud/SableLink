@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -107,11 +109,11 @@ func InitiateHandshake(peerIP string) {
 		fmt.Println("Handshake failed with", peerIP, "-", err)
 		return
 	}
-	defer conn.Close()
 
 	_, err = conn.Write(publicKey)
 	if err != nil {
 		fmt.Println("Error sending handshake message:", err)
+		conn.Close()
 		return
 	}
 
@@ -119,11 +121,12 @@ func InitiateHandshake(peerIP string) {
 	n, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println("No response from", peerIP)
+		conn.Close()
 		return
 	}
 	peerPublicKeys.Store(peerIP, buffer[:n])
 	fmt.Println("Handshake successful with", peerIP)
-	go chatSession(conn, peerIP)
+	go ChatSession(conn, peerIP)
 }
 
 func ListenForHandshakes() {
@@ -145,11 +148,11 @@ func ListenForHandshakes() {
 }
 
 func HandleHandshake(conn net.Conn) {
-	defer conn.Close()
 	buffer := make([]byte, 1024)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println("Error reading handshake message:", err)
+		conn.Close()
 		return
 	}
 
@@ -157,13 +160,15 @@ func HandleHandshake(conn net.Conn) {
 	_, err = conn.Write(publicKey)
 	if err != nil {
 		fmt.Println("Error sending handshake acknowledgment:", err)
-	} else {
-		fmt.Println("Handshake completed with", conn.RemoteAddr())
-		go chatSession(conn, conn.RemoteAddr().String())
+		conn.Close()
+		return
 	}
+
+	fmt.Println("Handshake completed with", conn.RemoteAddr())
+	go ChatSession(conn, conn.RemoteAddr().String())
 }
 
-func encryptMessage(message string, peerPublicKey []byte) ([]byte, error) {
+func EncryptMessage(message string, peerPublicKey []byte) ([]byte, error) {
 	pubKey, err := x509.ParsePKCS1PublicKey(peerPublicKey)
 	if err != nil {
 		return nil, err
@@ -171,7 +176,7 @@ func encryptMessage(message string, peerPublicKey []byte) ([]byte, error) {
 	return rsa.EncryptOAEP(sha256.New(), rand.Reader, pubKey, []byte(message), nil)
 }
 
-func decryptMessage(ciphertext []byte) (string, error) {
+func DecryptMessage(ciphertext []byte) (string, error) {
 	decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, ciphertext, nil)
 	if err != nil {
 		return "", err
@@ -179,8 +184,43 @@ func decryptMessage(ciphertext []byte) (string, error) {
 	return string(decrypted), nil
 }
 
-func chatSession(conn net.Conn, peerIP string) {
+func SendMessages(conn net.Conn, peerIP string) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("[You]: ")
+		if scanner.Scan() {
+			message := scanner.Text()
+			peerKey, _ := peerPublicKeys.Load(peerIP)
+			if peerKey != nil {
+				encrypted, err := EncryptMessage(message, peerKey.([]byte))
+				if err == nil {
+					conn.Write(encrypted)
+				}
+			}
+		}
+	}
+}
+
+func ReceiveMessages(conn net.Conn) {
+	buffer := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buffer)
+		if err != nil {
+			fmt.Println("\nConnection closed.")
+			return
+		}
+		decrypted, err := DecryptMessage(buffer[:n])
+		if err == nil {
+			fmt.Println("\n[Peer]:", decrypted)
+			fmt.Print("[You]: ")
+		}
+	}
+}
+
+func ChatSession(conn net.Conn, peerIP string) {
 	fmt.Println("Chat session established with", peerIP)
+	go ReceiveMessages(conn)
+	SendMessages(conn, peerIP)
 }
 
 func main() {
