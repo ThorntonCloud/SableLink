@@ -17,6 +17,7 @@ import (
 const (
 	broadcastPort = ":9999" // UDP Port for discovery
 	handshakePort = "8888"  // TCP Port for handshake
+	chunkSize     = 190
 )
 
 var privateKey *rsa.PrivateKey
@@ -168,12 +169,26 @@ func HandleHandshake(conn net.Conn) {
 	go ChatSession(conn, conn.RemoteAddr().String())
 }
 
-func EncryptMessage(message string, peerPublicKey []byte) ([]byte, error) {
-	pubKey, err := x509.ParsePKCS1PublicKey(peerPublicKey)
+func EncryptMessageBatch(message string, peerKeyBytes []byte) ([][]byte, error) {
+	peerKey, err := x509.ParsePKCS1PublicKey(peerKeyBytes)
 	if err != nil {
 		return nil, err
 	}
-	return rsa.EncryptOAEP(sha256.New(), rand.Reader, pubKey, []byte(message), nil)
+
+	var chunks [][]byte
+	for i := 0; i < len(message); i += chunkSize {
+		end := i + chunkSize
+		if end > len(message) {
+			end = len(message)
+		}
+		chunk := []byte(message[i:end])
+		encryptedChunk, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, peerKey, chunk, nil)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, encryptedChunk)
+	}
+	return chunks, nil
 }
 
 func DecryptMessage(ciphertext []byte) (string, error) {
@@ -192,9 +207,11 @@ func SendMessages(conn net.Conn, peerIP string) {
 			message := scanner.Text()
 			peerKey, _ := peerPublicKeys.Load(peerIP)
 			if peerKey != nil {
-				encrypted, err := EncryptMessage(message, peerKey.([]byte))
+				encryptedChunks, err := EncryptMessageBatch(message, peerKey.([]byte))
 				if err == nil {
-					conn.Write(encrypted)
+					for _, chunk := range encryptedChunks {
+						conn.Write(chunk)
+					}
 				}
 			}
 		}
@@ -206,7 +223,7 @@ func ReceiveMessages(conn net.Conn) {
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			fmt.Println("\nConnection closed.")
+			fmt.Println("Connection closed.")
 			return
 		}
 		decrypted, err := DecryptMessage(buffer[:n])
