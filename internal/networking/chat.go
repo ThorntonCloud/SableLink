@@ -6,7 +6,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/thorntoncloud/sable/internal/encryption"
+	"github.com/thorntoncloud/sablelink/internal/encryption"
 )
 
 func SendMessages(conn net.Conn, peerIP string) {

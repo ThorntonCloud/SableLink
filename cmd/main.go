@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/thorntoncloud/sable/internal/encryption"
-	"github.com/thorntoncloud/sable/internal/networking"
-	"github.com/thorntoncloud/sable/internal/utils"
+	"github.com/thorntoncloud/sablelink/internal/encryption"
+	"github.com/thorntoncloud/sablelink/internal/networking"
+	"github.com/thorntoncloud/sablelink/internal/utils"
 )
 
 func main() {

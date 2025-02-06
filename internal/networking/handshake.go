@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/thorntoncloud/sable/internal/encryption"
+	"github.com/thorntoncloud/sablelink/internal/encryption"
 )
 
 func InitiateHandshake(peerIP string) {
